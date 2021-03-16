@@ -1,4 +1,5 @@
 import re
+from functools import partial
 def verilog_fmt(fstr, *args, timeval = -1):
     """Verilog % style formating
     Supports %t for time and %d or %x for integers only!
@@ -11,7 +12,7 @@ def verilog_fmt(fstr, *args, timeval = -1):
     argidx = 0
     pos = 0
     s = ""
-    for part in re.finditer(r"(\%\d*[txd])", fstr):
+    for part in re.finditer(r"(\%\d*[stxd])", fstr):
         s += fstr[pos:part.start(0)]
         pos = part.end(0)
         fmt = part[0][1:]   # strip leading % from format
@@ -36,3 +37,19 @@ def verilog_fmt(fstr, *args, timeval = -1):
         s += format(val, fmt)
     s += fstr[pos:]
     return s
+
+def sextend(val, c):
+    "sign extend c bit val to 32 bits"
+    sign = 0b1 & (val >> (c-1))
+    if sign == 0b1:
+        mask = (1 << c) - 1
+        uppermask = 0xffffffff ^ mask
+        # invert plus one, after sign extension
+        return - (0xffffffff - (uppermask | val) + 1) 
+    else:
+        # positive values are unchanged
+        return val
+
+def sextend12(val):
+    "12 bit sign extender, generates a 32 bit 2s comp value from a 12-bit 2s comp value."
+    return partial(sextend, c=12)
