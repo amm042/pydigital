@@ -1,1 +1,1 @@
-from .isa import Instruction
+from .isa import Instruction, BadInstruction

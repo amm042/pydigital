@@ -18,12 +18,16 @@ def regNumToName(num):
             't3', 't4', 't5', 't6'][num] # 28..31
 class Instruction():
     "represents/decodes RISCV instructions"    
-    def __init__ (self, val, pc):
-        "val is the machine code word"
-
+    def __init__ (self, val, pc, symbols = {}):
+        """
+        Decodes a risc-v instruction word
+        val is the machine code word
+        pc is the pc value used to format pc-relative assembly instructions
+        symbols is an optional symbol table to decode addresses in assembly output 
+        """
         self.val = val        
         self.pc = pc # pc relative instrs need pc to compute targets for display
-
+        self.symbols = symbols
         if val == None:
             self.name = "None"
             return
@@ -165,29 +169,47 @@ class Instruction():
                 raise BadInstruction()
             elif self.rs1 == 0:
                 # pseudo instruction   
-                self.asm = f"{self.name}z\t{regNumToName(self.rs2)},{self.pc + self.sb_imm:x}"
+                self.asm = f"{self.name}z\t{regNumToName(self.rs2)},pc+{self.sb_imm:x}\t({self.pc + self.sb_imm:x})"
             elif self.rs2 == 0:
                 # pseudo instruction
-                self.asm = f"{self.name}z\t{regNumToName(self.rs1)},{self.pc + self.sb_imm:x}"
+                self.asm = f"{self.name}z\t{regNumToName(self.rs1)},pc+{self.sb_imm:x}\t({self.pc + self.sb_imm:x})"
             else:
-                self.asm = f"{self.name}\t{regNumToName(self.rs1)},{regNumToName(self.rs2)},{self.pc + self.sb_imm:x}"
+                self.asm = f"{self.name}\t{regNumToName(self.rs1)},{regNumToName(self.rs2)},pc{self.sb_imm:+d}\t({self.pc + self.sb_imm:x})"
+
+            if self.pc + self.sb_imm in self.symbols:
+                self.asm += f' <{self.symbols[self.pc + self.sb_imm]}>'                
         else:
             raise BadInstruction()
 
     def LOADFP_STOREFP_JALR(self):
-        print("LOAD", end="")   
-        raise NotImplementedError() 
+        #JALR instruction here
+        if self.op == 0b1100111 and self.func3 == 0b000:
+            self.is_jump_reg = True
+            self.name = 'jalr'
+            if self.rd == 0:
+                if self.rs1 == 1 and self.i_imm == 0:
+                    self.asm = 'ret'
+                else:
+                    self.asm = f'jr\t{regNumToName(self.rs1)}'
+                
+            else:
+                self.asm = f'{self.name}\t{regNumToName(self.rd)},{regNumToName(self.rs1)}'
+            if self.i_imm > 0:
+                self.asm += f'\t({self.i_imm:x})'
+        else:
+            raise NotImplementedError() 
     def MISCMEM_JAL(self):
-
         if 0b11 & (self.op >> 5) == 0b11:
             # jumps
             self.is_jump = True
-            if self.rd == 0:
-                self.name = 'j'
-                self.asm = f"{self.name}\t{(self.pc + self.uj_imm):8x}"
-            else:
-                self.name = 'jal'
+            self.name = 'jal'
+            if self.rd == 0:                
+                # j pseudo instruction
+                self.asm = f"j\t{(self.pc + self.uj_imm):8x}"
+            else:                
                 self.asm = f"{self.name}\t{regNumToName(self.rd)},{(self.pc + self.uj_imm):8x}"
+            if self.pc + self.uj_imm in self.symbols:
+                self.asm += f'\t<{self.symbols[self.pc + self.uj_imm]}>'
         else:
             print("MISCMEM", end="")
             raise NotImplementedError()
