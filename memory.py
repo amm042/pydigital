@@ -167,7 +167,7 @@ def readmemh(filename, begin_addr = 0, word_size = 4, byteorder = 'big'):
                 if data != None:
                     # output segment before creating a new one
                     # multi segment hex files are not supported atm.
-                    raise NotImplemented()
+                    raise NotImplementedError()
                 # the hex file is indexed by words
                 at = word_size * int (statement[1:], base=16)
                 data = []
