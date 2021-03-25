@@ -39,7 +39,7 @@ class Instruction():
         self.rs1 = 0x1f & (self.val >> 15)
         self.rs2 = 0x1f & (self.val >> 20)
         self.func3 = (self.val >> 12) & 0x7 
-        self.func7 = 0x7f & (self.op >> 25)
+        self.func7 = 0x7f & (self.val >> 25)
         
         # decode all possible immediate values
         self.i_imm = self.sextend12(0xfff & (self.val >> 20))    
@@ -54,7 +54,9 @@ class Instruction():
                 ((0x1  & (self.val >> 7)) << 11 ) |
                 ((0x80000000 & self.val) >> 19)
             ), 13)
-        self.u_imm = self.sextend(0xfffff000 & self.val, 20)
+        self.u_imm = self.sextend(0xfffff000 & self.val, 32)
+        # u_imm is already 32-bits, don't have to sign extend, that would make it wrong!
+        #self.u_imm = 0xfffff000 & self.val
         self.uj_imm = self.sextend(0xfffff & 
             (
                 ((0x3ff & (self.val >> 21)) << 1) |
@@ -71,6 +73,7 @@ class Instruction():
         self.is_branch = False
         self.is_jump = False
         self.is_jump_reg = False
+        self.is_csr = False
 
         # indexed by bits 4:2 of instruction    
         self.decoders = [
@@ -93,6 +96,21 @@ class Instruction():
             decoder()
         else:
             raise BadInstruction()
+
+    def dump(self):
+        "dump all instruction details, useful for debugging"
+        f = ['val', 'op', 'rd','rs1','rs2']
+        s = ", ".join([f'{_n.rjust(10)}: {format(getattr(self, _n), "8x")}' for _n in f])
+        f = ['func3', 'func7']
+        s += '\n' + ", ".join([f'{_n.rjust(10)}: {format(getattr(self, _n), "8x")}' for _n in f])
+        f = ['i_imm', 's_imm', 'sb_imm', 'u_imm', 'uj_imm', 'z_imm']
+        s += '\n' + ", ".join([f'{_n.rjust(10)}: {format(getattr(self, _n), "8x")}' for _n in f])
+        f = ['is_branch', 'is_jump', 'is_jump_reg', 'is_csr']
+        s += '\n' + ", ".join([f'{_n.rjust(10)}: {format(getattr(self, _n), "8x")}' for _n in f])
+
+        if self.is_csr:
+            s += f'\n{"csr".rjust(10)}: {format(self.csr, "08x")} == {csrd[self.csr]}'
+        return s
 
     def sextend(self, val, c):
         "sign extend c val to 32 bits"
@@ -165,8 +183,6 @@ class Instruction():
             ][self.func3]
             if self.name == '---':
                 raise BadInstruction()
-            if self.rs1 == 0 and self.rs2 == 0:
-                raise BadInstruction()
             elif self.rs1 == 0:
                 # pseudo instruction   
                 self.asm = f"{self.name}z\t{regNumToName(self.rs2)},pc+{self.sb_imm:x}\t({self.pc + self.sb_imm:x})"
@@ -203,15 +219,19 @@ class Instruction():
             # jumps
             self.is_jump = True
             self.name = 'jal'
-            if self.rd == 0:                
+            if self.rd == 0:
                 # j pseudo instruction
                 self.asm = f"j\t{(self.pc + self.uj_imm):8x}"
             else:                
                 self.asm = f"{self.name}\t{regNumToName(self.rd)},{(self.pc + self.uj_imm):8x}"
             if self.pc + self.uj_imm in self.symbols:
                 self.asm += f'\t<{self.symbols[self.pc + self.uj_imm]}>'
+        elif self.op == 0b0001111 and self.func3 == 0b000:
+            # not fully implemented/decoded
+            self.name = 'fence'
+            self.asm = 'fence'
         else:
-            print("MISCMEM", end="")
+            print("MISCMEM:\n" + self.dump())
             raise NotImplementedError()
     def OP_OPIMM_SYSTEM(self):
         if 0b11 & (self.op >> 5) == 0b00:          
@@ -234,8 +254,9 @@ class Instruction():
 
             if self.func3 == 0b101:
                 self.shamt = 0x1f & (self.op >> 20)
-                if self.func7 == 0b0100000:                    
-                    self.asm = f"srai\t{regNumToName(self.rd)},{regNumToName(self.rs1)},0x{self.i_imm:x}"
+                if self.func7 == 0b0100000:
+                    self.name = 'srai'
+                    self.asm = f"{self.name}\t{regNumToName(self.rd)},{regNumToName(self.rs1)},0x{self.i_imm:x}"
                 else:
                     # shift immediates are printed in hex
                     self.asm = f"{self.name}\t{regNumToName(self.rd)},{regNumToName(self.rs1)},0x{self.i_imm:x}"
@@ -252,10 +273,12 @@ class Instruction():
                 'slt',
                 'sltu',
                 'xor', # 4
-                'srl',
+                'srl', # and sra
                 'or',
                 'and', # 7
             ][self.func3]
+            if self.func3 == 5 and self.func7 == 0b0100000:
+                self.name = 'sra'
             if self.func3 == 0 and self.func7 == 0b0100000:
                 self.name = 'sub'
             self.asm = f"{self.name}\t{regNumToName(self.rd)},{regNumToName(self.rs1)},{regNumToName(self.rs2)}"
@@ -263,7 +286,8 @@ class Instruction():
         elif 0b11 & (self.op >> 5) == 0b10:
             self.name = 'op-fp'
             raise NotImplementedError() 
-        elif 0b11 & (self.op >> 5) == 0b11:           
+        elif 0b11 & (self.op >> 5) == 0b11:
+                
             if (self.val >> 7) == 0:
                 self.name = 'ecall'
                 self.asm = self.name
@@ -272,31 +296,56 @@ class Instruction():
                 self.asm = self.name
             else:          
                 self.csr = 0xfff & (self.val >> 20)
+                self.is_csr = True
+                # system opcodes are messy
+                if self.csr == 0 and self.rs1 == 0 and self.func3 == 0 and self.rd == 0:
+                    self.name = 'ecall'
+                    self.asm = 'ecall'                    
+                elif self.csr == 1 and self.rs1 == 0 and self.func3 == 0 and self.rd == 0:
+                    self.name = 'ebreak' 
+                    self.asm = 'ebreak'
+                elif self.func3 == 0 and self.rs1 == 0 and self.rd == 0:
+                    # Uret/Sret/Hret/Mret
+                    if self.i_imm == 0b000000000010:
+                        self.name, self.asm ='uret', 'uret'
+                    elif self.i_imm == 0b000100000010:
+                        self.name, self.asm ='sret', 'sret'
+                    elif self.i_imm == 0b01000000010:
+                        self.name, self.asm ='hret', 'hret'
+                    elif self.i_imm == 0b001100000010:
+                        self.name, self.asm ='mret', 'mret'
+                    else:
+                        raise ValueError("Unsupported instruction")
+                else:
+                    self.name = [
+                        '---', # ecall or ebreak
+                        'csrrw',
+                        'csrrs',
+                        'csrrc',
+                        '---' # 4
+                        'csrrwi',
+                        'csrrsi',
+                        'csrrci'
+                    ][self.func3]                          
+                    pname = self.name
+                    # pseudo name generation
+                    if self.rd == 0:
+                        # drop inner r
+                        pname = self.name[0:3] + self.name[4:]     
+                    asm = []
+                    # not pseudo op
+                    if self.rd != 0:                    
+                        asm += [regNumToName(self.rd)]
 
-                self.name = [
-                    '---',
-                    'csrrw',
-                    'csrrs',
-                    'csrrc',
-                    '---' # 4
-                    'csrrwi',
-                    'csrrsi',
-                    'csrrci'
-                ][self.func3]
-                
-                pname = self.name
-                # pseudo name generation
-                if self.rd == 0:
-                    # drop inner r
-                    pname = self.name[0:3] + self.name[4:]     
-                asm = []
-                # not pseudo op
-                if self.rd != 0:                    
-                    asm += [regNumToName(self.rd)]
-                asm += [csrd[getattr(self, 'csr')]]
-                if self.rs1 != 0:
-                    asm += [regNumToName(self.rs1)]
-                self.asm = f"{pname}\t" + ",".join(asm)                                      
+                    asm += [csrd[self.csr]]
+                    
+                    if self.name[-1] == 'i':
+                        # rs1 is used as the immediate value
+                        asm += [str(self.rs1)]
+                    else:
+                        if self.rs1 != 0:
+                            asm += [regNumToName(self.rs1)]
+                    self.asm = f"{pname}\t" + ",".join(asm)                                      
         else:
             raise BadInstruction()
     def AUIPC_LUI(self):                
@@ -307,7 +356,8 @@ class Instruction():
         else:
             raise BadInstruction()
         # objdump output doesn't show trailing 12-bit of zeros for display
-        self.asm = f"{self.name}\t{regNumToName(self.rd)},0x{self.u_imm>>12:x}"
+        # and it shows the unsigned value
+        self.asm = f"{self.name}\t{regNumToName(self.rd)},0x{(0xfffff000 & self.val)>>12:05x}"
 
     def OP32_OPIMM32(self):
         print("OPIMM32", end="")

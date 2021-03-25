@@ -3,20 +3,27 @@ memory.py
 =========
 Provides a byte-addressed memory.
 """
+from pydigital.utils import sextend
 class Memory:
     "Memory module which implements the risc-v sodor memory interface"
     def __init__(self, segment = None):
         "initialize with a memory segment"
         self.mem = segment
-    def out(self, addr, byte_count = 4):
+    def out(self, addr, byte_count = 4, signed = True):
         "read access"
+        if addr == None:
+            return None
         #TODO check of byte_count is larger than word size, that won't work!
+        if signed:
+            f = sextend
+        else:
+            f = lambda x, c: x
         if byte_count == 1:
-            return self.mem[addr] & 0xff
+            return f(self.mem[addr] & 0xff, 8)
         elif byte_count == 2:
-            return self.mem[addr] & 0xffff
+            return f(self.mem[addr] & 0xffff, 16)
         elif byte_count == 4:
-            return self.mem[addr] & 0xffffffff
+            return f(self.mem[addr] & 0xffffffff, 32)
         elif byte_count == 8:
             return self.mem[addr] & 0xffffffffffffffff
         else:
@@ -24,7 +31,12 @@ class Memory:
     def clock(self, addr, data, mem_rw = 0, byte_count = 4):
         "synchronous write, mem_rw=1 for write"
         if mem_rw == 1:
-            val = data.to_bytes(length=byte_count, byteorder=self.mem.byteorder)
+            mask = (2**(byte_count*8))-1
+            #print(f"MEM write mask {mask:08x} masked val is {(mask&data):08x} of {byte_count} bytes")
+            # mask out any upper bits so to_bytes doesn't complain
+            val = (mask & data).to_bytes(length=byte_count, 
+                byteorder = self.mem.byteorder, signed = False)
+            #print(f'MEM val is {val}')
             self.mem[addr] = val
 class ELFMemory:
     "ELFMemory is a collection of memory segments that supports get/set"
@@ -32,11 +44,15 @@ class ELFMemory:
         self.mems = []
         self.byteorder = None
     def __getitem__(self, i):
+        if i == None: 
+            return None
         for m in self.mems:
             if i in m:
                 return m[i]
         raise IndexError(f"Address {i:08x} not found in memory.")
     def __setitem__(self, i, val):
+        if i == None:
+            return
         for m in self.mems:
             if i in m:                  
                 m[i] = val
@@ -88,15 +104,23 @@ class MemorySegment:
         "get a word from a given *byte* address"
         if i == None:
             return None
-        try:
-            i -= self.begin_addr
-        except TypeError as err:
-            print("can't access", i)
-            raise err
-        # returns the given word size value as an unsigned int (preserving 2s comp)
-        return int.from_bytes(
-            self.data[i: i+self.word_size],
-            byteorder=self.byteorder, signed=False)
+        if isinstance(i, slice):
+            # if you ask for a slice, you get raw bytes
+            data = self.data[i.start - self.begin_addr: i.stop - self.begin_addr: i.step]            
+            return data
+            # this decodes, but that's less useful
+            #return [int.from_bytes(data[_i:_i+self.word_size], byteorder=self.byteorder, signed=False) \
+                    #for _i in data[::self.word_size]]
+        else:
+            try:
+                i -= self.begin_addr
+            except TypeError as err:
+                print("can't access", i)
+                raise err
+            # returns the given word size value as an unsigned int (preserving 2s comp)
+            return int.from_bytes(
+                self.data[i: i+self.word_size],
+                byteorder=self.byteorder, signed=False)
     def __setitem__(self, i, val, signed=False):
         "set a word at given *byte* address"
         if type(val) == int:
@@ -115,11 +139,14 @@ class MemorySegment:
         # self.data[(i - self.begin_addr) // self.word_size] = self.fromTwosComp(val)
     def __contains__(self, addr):
         "is the given byte address in this memory segment?"
-        return addr >= self.begin_addr and addr < self.end_addr
+        if isinstance(addr, slice):
+            return addr.start in self and addr.stop in self
+        else:
+            return addr >= self.begin_addr and addr < self.end_addr
     def to_hex(self):
         s = ["@" + format(int(self.begin_addr / self.word_size), "x")]
         
-        fmt = f"0{2*self.word_size}x"    
+        fmt = f"0{2*self.word_size}x"
         num = int(len(self.data) / self.word_size)
         print(fmt)
         for wordaddr in range(num):

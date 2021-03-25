@@ -45,18 +45,44 @@ def verilog_fmt(fstr, *args, timeval = -1):
     s += fstr[pos:]
     return s
 
-def sextend(val, c):
-    "sign extend c bit val to 32 bits as a python integer"
+def sextend(val, c=32):
+    "sign extend a c bit val to 32 bits as a python integer"
+    # this converts from a twos-complement number to a python signed integer
     sign = 0b1 & (val >> (c-1))
-    if sign == 0b1:
-        mask = (1 << c) - 1
+    mask = (1 << c) - 1
+    
+
+    if sign == 0b1:        
         uppermask = 0xffffffff ^ mask
+        #print(f"sign {sign:02x} mask = {mask:08x}, uppermask {uppermask:08x}, val = {val:08x}")
         # invert plus one, after sign extension
         return - (0xffffffff - (uppermask | val) + 1) 
     else:
-        # positive values are unchanged
-        return val
+        # positive values (should we check if > 32 bits and truncate?)
+        return val 
 
 def sextend12(val):
     "12 bit sign extender, generates a 32 bit 2s comp value from a 12-bit 2s comp value."
     return partial(sextend, c=12)
+
+def as_twos_comp(val):
+    "take a python signed integer value and represent as a 32-bit 2-s complement integer"
+    # python bit masking uses the maximum number from either operand and
+    # expands the other value to match, so this is easy.
+    if val == None:
+        return None
+    if val >= 0:
+        return val# & 0x7fffffff
+    else:
+        return val & 0xffffffff
+
+if __name__=="__main__":
+
+    print (f'{sextend(0x80000000):08x}')
+    print(f'{as_twos_comp(-1)<<1:08x}')
+    exit()
+    for a in [0, 1, -1, 0x7fffffff, -0x80000000, 0x80000000]:
+        twos = as_twos_comp(a)
+        fromtwos = sextend(twos)
+        print(f"a = {a:+09x} as twos = {twos:08x} from twos {fromtwos:+09x}")
+        assert fromtwos == a

@@ -69,13 +69,13 @@ class Elf():
     def __exit__(self, *args):
         self.f.close()
 
-def load_elf(elffile, quiet = False):
+def load_elf(elffile, stack_size = 64 * 2**10, quiet = False):
     "this loads an elf file into memory segments for simulation"
     # initialize memories as a unified memory (instruction + data)
     sys_mem = ELFMemory()
-    
-    with Elf(elffile, quiet=quiet) as e:       
-        for addr, size, data in e.segments():            
+    # TODO this should read the word size from the file, now it assumes 32 bit.
+    with Elf(elffile, quiet=quiet) as e:
+        for addr, size, data in e.segments():
             if len(data) == 0:
                 # non initalized segments need to be allocated
                 data = bytearray(size)
@@ -94,17 +94,18 @@ def load_elf(elffile, quiet = False):
             sys_mem += ms
 
         symbols = e.symbol_map    
-
+    # allocate stack immediately at the end of the elf segments
+    # this is how the UCB linker script expects memory 
+    sys_mem += MemorySegment(
+        begin_addr = sys_mem.end_addr(),
+        count = stack_size,
+        byteorder = sys_mem.byteorder,
+        word_size = 4)
     if not quiet:
         print(f"Created system memory in range {sys_mem.begin_addr():08x}:{sys_mem.end_addr():08x}")                
         print( "Segments:\n" + str(sys_mem))
         print(f"Total allocated system memory is {len(sys_mem) / 1024:4.1f} kilobytes.")
         print("-"*60)
-    # allocate 64k byte stack space above last address in program
-    sys_mem += MemorySegment(
-        begin_addr = sys_mem.end_addr(),
-        count = 64*2**10,
-        byteorder = sys_mem.byteorder,
-        word_size = 4)
+
 
     return sys_mem, symbols
