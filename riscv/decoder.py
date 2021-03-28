@@ -225,7 +225,7 @@ enums = {
 			"CSR.W": 1,
 			"CSR.I": 2,
 			"CSR.N": 3,
-			"CSR.S": 4
+			"CSR.S": 4  # read and set bits
 		}
 	}
 

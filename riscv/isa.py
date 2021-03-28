@@ -185,10 +185,10 @@ class Instruction():
                 raise BadInstruction()
             elif self.rs1 == 0:
                 # pseudo instruction   
-                self.asm = f"{self.name}z\t{regNumToName(self.rs2)},pc+{self.sb_imm:x}\t({self.pc + self.sb_imm:x})"
+                self.asm = f"{self.name}z\t{regNumToName(self.rs2)},pc{self.sb_imm:+d}\t({self.pc + self.sb_imm:x})"
             elif self.rs2 == 0:
                 # pseudo instruction
-                self.asm = f"{self.name}z\t{regNumToName(self.rs1)},pc+{self.sb_imm:x}\t({self.pc + self.sb_imm:x})"
+                self.asm = f"{self.name}z\t{regNumToName(self.rs1)},pc{self.sb_imm:+d}\t({self.pc + self.sb_imm:x})"
             else:
                 self.asm = f"{self.name}\t{regNumToName(self.rs1)},{regNumToName(self.rs2)},pc{self.sb_imm:+d}\t({self.pc + self.sb_imm:x})"
 
@@ -297,6 +297,7 @@ class Instruction():
             else:          
                 self.csr = 0xfff & (self.val >> 20)
                 self.is_csr = True
+                
                 # system opcodes are messy
                 if self.csr == 0 and self.rs1 == 0 and self.func3 == 0 and self.rd == 0:
                     self.name = 'ecall'
