@@ -34,7 +34,7 @@ class Memory:
             mask = (2**(byte_count*8))-1
             #print(f"MEM write mask {mask:08x} masked val is {(mask&data):08x} of {byte_count} bytes")
             # mask out any upper bits so to_bytes doesn't complain
-            val = (mask & data).to_bytes(length=byte_count, 
+            val = (mask & data).to_bytes(length=byte_count,
                 byteorder = self.mem.byteorder, signed = False)
             #print(f'MEM val is {val}')
             self.mem[addr] = val
